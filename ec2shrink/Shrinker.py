@@ -3,13 +3,18 @@ import subprocess
 import json
 import time
 import pexpect
+import logging
+# TODO: need to open policy for open internet during creation
+# TODO: make into pypi package
+
 
 
 @click.group()
 @click.version_option("1.0.0")
 def main():
     """Shrink EC2 instance on AWS"""
-    pass
+    logging.basicConfig()
+    logging.getLogger().setLevel(logging.INFO)
 
 
 @main.command()
@@ -26,15 +31,15 @@ def viewinstances():
     """View EC2 instance IDs and AZs"""
     output = subprocess.check_output(
         [
-            "awscliv2",
+            "aws",
             "ec2",
             "describe-instances",
             "--query",
-            "Reservations[0].Instances[*].{Instance:InstanceId,AZ:Placement.AvailabilityZone}",
+            "Reservations[*].Instances[*].{Instance:InstanceId,AZ:Placement.AvailabilityZone}"
         ]
     )
     d = json.loads(output)
-    print(d)
+    logging.debug(d)
 
 
 @main.command()
@@ -42,7 +47,7 @@ def viewinstances():
 @click.option("--id", default="i-3", required=True, help="EC2 instance ID")
 @click.option("--size", default=9, required=True, help="desired size to change to")
 def shrink(ctx, id, size):
-    """Resize EC2 instance"""
+    """Shrink EC2 instance"""
     ctx.invoke(stop, id=id)
 
     instanceB = ctx.invoke(make, size=size)
@@ -66,12 +71,12 @@ def shrink(ctx, id, size):
 
     ctx.invoke(attach, volid=volB, instanceid=id, device="/dev/xvda")
 
-    output = subprocess.check_output(
-        ["awscliv2", "ec2", "start-instances", "--instance-ids", id]
-    )
-    d = json.loads(output)
-    print(d)
-    ctx.invoke(status, id=id, stat="running")
+    ctx.invoke(start, id=id)
+
+    ctx.invoke(instanceterminate, id=instanceB)
+    ctx.invoke(instanceterminate, id=instanceC)
+
+    ctx.invoke(voldelete, volid=volA)
 
 
 @main.command()
@@ -80,11 +85,37 @@ def shrink(ctx, id, size):
 def stop(ctx, id):
     """stop instance"""
     output = subprocess.check_output(
-        ["awscliv2", "ec2", "stop-instances", "--instance-ids", id]
+        ["aws", "ec2", "stop-instances", "--instance-ids", id]
     )
     d = json.loads(output)
-    print(d)
+    logging.debug(d)
     ctx.invoke(status, id=id, stat="stopped")
+
+
+@main.command()
+@click.pass_context
+@click.option("--id", default="i-3", required=True, help="EC2 instance ID")
+def start(ctx, id):
+    """start instance"""
+    output = subprocess.check_output(
+        ["aws", "ec2", "start-instances", "--instance-ids", id]
+    )
+    d = json.loads(output)
+    logging.debug(d)
+    ctx.invoke(status, id=id, stat="running")
+
+
+@main.command()
+@click.pass_context
+@click.option("--id", default="i-3", required=True, help="EC2 instance ID")
+def instanceterminate(ctx, id):
+    """terminate ec2 instance"""
+    output = subprocess.check_output(
+        ["aws", "ec2", "terminate-instances", "--instance-ids", id]
+    )
+    d = json.loads(output)
+    logging.debug(d)
+    ctx.invoke(status, id=id, stat="terminated")
 
 
 @main.command()
@@ -100,7 +131,7 @@ def volstatus(volid, stat, detach):
     """instance status"""
     while True:
         output2 = subprocess.check_output(
-            ["awscliv2", "ec2", "describe-volumes", "--volume-ids", volid]
+            ["aws", "ec2", "describe-volumes", "--volume-ids", volid]
         )
         r = json.loads(output2)
 
@@ -109,14 +140,15 @@ def volstatus(volid, stat, detach):
         else:
             istatus = r["Volumes"][0]["Attachments"][0]["State"]
 
-        print(istatus)
+        logging.info(istatus)
         if istatus == stat:
             break
         else:
-            print(istatus)
-            time.sleep(3)
+            logging.info(istatus)
+            time.sleep(5)
 
 
+# TODO: rename this to instancestatus
 @main.command()
 @click.option("--id", default="i-3", help="ec2 instance id to check status for")
 @click.option("--stat", default="running", help="desired status")
@@ -124,16 +156,29 @@ def status(id, stat):
     """instance status"""
     while True:
         output2 = subprocess.check_output(
-            ["awscliv2", "ec2", "describe-instances", "--instance-id", id]
+            ["aws", "ec2", "describe-instances", "--instance-id", id]
         )
         r = json.loads(output2)
         istatus = r["Reservations"][0]["Instances"][0]["State"]["Name"]
-        print(istatus)
+        logging.info(istatus)
         if istatus == stat:
             break
         else:
-            print(istatus)
-            time.sleep(3)
+            logging.info(istatus)
+            time.sleep(5)
+
+
+@main.command()
+@click.pass_context
+@click.option("--volid", default="vol-3", help="volume id")
+def voldelete(ctx, volid):
+    """delete volume"""
+    output = subprocess.check_output(
+        ["aws", "ec2", "delete-volume", "--volume-id", volid]
+    )
+    d = json.loads(output)
+    logging.debug(d)
+    ctx.invoke(volstatus, volid=volid, stat="deleted", detach=True)
 
 
 @main.command()
@@ -142,10 +187,10 @@ def status(id, stat):
 def detach(ctx, volid):
     """detach volume"""
     output = subprocess.check_output(
-        ["awscliv2", "ec2", "detach-volume", "--volume-id", volid]
+        ["aws", "ec2", "detach-volume", "--volume-id", volid]
     )
     d = json.loads(output)
-    print(d)
+    logging.debug(d)
     ctx.invoke(volstatus, volid=volid, stat="available", detach=True)
 
 
@@ -158,7 +203,7 @@ def attach(ctx, volid, instanceid, device):
     """attach volumes"""
     output = subprocess.check_output(
         [
-            "awscliv2",
+            "aws",
             "ec2",
             "attach-volume",
             "--volume-id",
@@ -166,11 +211,11 @@ def attach(ctx, volid, instanceid, device):
             "--instance-id",
             instanceid,
             "--device",
-            device,
+            device
         ]
     )
     d = json.loads(output)
-    print(d)
+    logging.debug(d)
     ctx.invoke(volstatus, volid=volid)
 
 
@@ -181,29 +226,32 @@ def getvolume(ctx, id):
     """get volume id of ec2 instance"""
     output = subprocess.check_output(
         [
-            "awscliv2",
+            "aws",
             "ec2",
             "describe-instances",
             "--instance-ids",
             id,
             "--query",
-            "Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId",
+            "Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId"
         ]
     )
     d = json.loads(output)
-    print(d)
+    logging.debug(d)
     return d
 
 
 @main.command()
 @click.pass_context
 @click.option("--size", default=10, help="ec2 storage size in GiB")
-@click.option("--instancetype", default="t2.micro", help="desired status")
-def make(ctx, size, instancetype):
+@click.option(
+    "--instancetype", default="t2.micro", help="instance type such as t2.micro"
+)
+@click.option("--az", default="us-east-1d", help="Availability zone such as us-east-1d")
+def make(ctx, size, instancetype, az):
     """make ec2 instance"""
     output = subprocess.check_output(
         [
-            "awscliv2",
+            "aws",
             "ec2",
             "run-instances",
             "--image-id",
@@ -211,15 +259,15 @@ def make(ctx, size, instancetype):
             "--instance-type",
             instancetype,
             "--placement",
-            "AvailabilityZone=us-east-1d",  # need this to be consistent
+            "AvailabilityZone=" + az,  # need this to be consistent
             "--block-device-mappings",
-            "DeviceName=/dev/xvda,Ebs={VolumeSize=" + str(size) + "}",
+            "DeviceName=/dev/xvda,Ebs={VolumeSize=" + str(size) + "}"
         ]
     )
     d = json.loads(output)
-    print(d)
+    logging.debug(d)
     idarg = d["Instances"][0]["InstanceId"]
-    print(idarg)
+    logging.info(idarg)
     ctx.invoke(status, id=idarg, stat="running")
     return idarg
 
@@ -240,19 +288,19 @@ def copy(ctx, id):
             "Are you sure you want to continue connecting",
             "Amazon Linux 2 AMI",
             pexpect.EOF,
-            pexpect.TIMEOUT,
+            pexpect.TIMEOUT
         ]
     )
-    print(index)
+    logging.info(index)
     if index == 0:
-        print("confirm")
+        logging.info("confirm")
         child.sendline("yes")
     elif index == 1:
-        print("no confirm")
+        logging.info("no confirm")
     elif index == 2:
-        print("EOF")
+        logging.info("EOF")
     elif index == 3:
-        print("TIMEOUT")
+        logging.info("TIMEOUT")
 
     child.expect("ec2")
     child.sendline("sudo mkdir /source /target")
@@ -261,7 +309,7 @@ def copy(ctx, id):
     child.expect("ec2")
     child.sendline("sudo mount -t xfs -o nouuid /dev/xvdg1 /target")
     child.expect("ec2")
-    print("syncing")
+    logging.info("syncing")
     child.sendline("sudo rsync -axSHAX /source/ /target")
     child.expect("ec2", timeout=None)
     child.sendline("sudo umount /target")
@@ -270,7 +318,7 @@ def copy(ctx, id):
     child.expect("ec2")
     time.sleep(2)
     child.sendline("exit")
-    print("done with copy")
+    logging.info("done with copy")
 
 
 if __name__ == "__main__":
