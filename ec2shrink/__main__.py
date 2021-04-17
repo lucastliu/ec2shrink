@@ -39,8 +39,7 @@ def viewinstances():
         ]
     )
     d = json.loads(output)
-    logging.debug(d)
-
+    logging.info(d)
 
 @main.command()
 @click.pass_context
@@ -96,7 +95,7 @@ def stop(ctx, id):
 @click.pass_context
 @click.option("--id", default="i-3", required=True, help="EC2 instance ID")
 def start(ctx, id):
-    """start instance"""
+    """start EC2 instance"""
     output = subprocess.check_output(
         ["aws", "ec2", "start-instances", "--instance-ids", id]
     )
