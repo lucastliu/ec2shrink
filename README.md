@@ -2,15 +2,6 @@
 An easier way to reduce the storage size for EC2
 
 
-## Install Package
-
-Install ec2shrink
-```
-pip3 install ec2shrink
-
-```
-
-
 ## AWS CloudShell
 Login to [AWS CloudShell](https://aws.amazon.com/cloudshell/) with Administrator Priviledges
 
@@ -28,7 +19,7 @@ This ip is not static unfortunately, and so you may need to update the security 
 
 
 ```
-pip install ec2shrink==1.0.0
+sudo pip3 install ec2shrink==1.0.0
 
 ```
 
@@ -40,7 +31,7 @@ You will need to [configure credentials for the awscli](https://github.com/aws/a
 
 
 ```
-pip install ec2shrink==1.1.0
+pip3 install ec2shrink==1.1.0
 
 ```
 
